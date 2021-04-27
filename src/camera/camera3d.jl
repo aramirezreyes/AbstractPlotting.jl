@@ -25,8 +25,8 @@ in CAD software cameras.
 """
 function cam3d_cad!(scene; kw_args...)
     cam_attributes = merged_get!(:cam3d, scene, Attributes(kw_args)) do
-        Theme(
-            rotationspeed = 0.3,
+        Attributes(
+            rotationspeed = 0.01,
             translationspeed = 1.0,
             eyeposition = Vec3f0(3),
             lookat = Vec3f0(0),
@@ -61,8 +61,8 @@ the plot's axis.
 """
 function cam3d_turntable!(scene; kw_args...)
     cam_attributes = merged_get!(:cam3d, scene, Attributes(kw_args)) do
-        Theme(
-            rotationspeed = 0.3,
+        Attributes(
+            rotationspeed = 0.01,
             translationspeed = 1.0,
             eyeposition = Vec3f0(3),
             lookat = Vec3f0(0),
@@ -139,7 +139,7 @@ end
 function add_translation!(scene, cam, key, button, zoom_shift_lookat::Bool)
     last_mousepos = RefValue(Vec2f0(0, 0))
     on(camera(scene), scene.events.mousedrag) do drag
-        mp = Vec2f0(scene.events.mouseposition[])
+        mp = mouseposition_px(scene)
         if ispressed(scene, key[]) && ispressed(scene, button[]) && is_mouseinside(scene)
             if drag == Mouse.down
                 #just started pressing, nothing to do yet
@@ -156,7 +156,7 @@ function add_translation!(scene, cam, key, button, zoom_shift_lookat::Bool)
     on(camera(scene), scene.events.scroll) do scroll
         if ispressed(scene, button[]) && is_mouseinside(scene)
             cam_res = Vec2f0(widths(scene.px_area[]))
-            mouse_pos_normalized = Vec2f0(scene.events.mouseposition[]) ./ cam_res
+            mouse_pos_normalized = mouseposition_px(scene) ./ cam_res
             mouse_pos_normalized = 2*mouse_pos_normalized .- 1f0
             zoom_step = scroll[2]
             zoom!(scene, mouse_pos_normalized, zoom_step, zoom_shift_lookat)
@@ -167,13 +167,14 @@ end
 
 function add_rotation!(scene, cam, button, key, fixed_axis::Bool)
     last_mousepos = RefValue(Vec2f0(0, 0))
-    on(camera(scene), scene.events.mousedrag) do drag
+    e = events(scene)
+    on(camera(scene), e.mousedrag) do drag
         if ispressed(scene, button[]) && ispressed(scene, key[]) && is_mouseinside(scene)
             if drag == Mouse.down
-                last_mousepos[] = Vec2f0(scene.events.mouseposition[])
+                last_mousepos[] = mouseposition_px(scene)
             elseif drag == Mouse.pressed
-                mousepos = Vec2f0(scene.events.mouseposition[])
-                rot_scaling = cam.rotationspeed[] * (scene.events.window_dpi[] * 0.001)
+                mousepos = mouseposition_px(scene)
+                rot_scaling = cam.rotationspeed[] * (e.window_dpi[] * 0.005)
                 mp = (last_mousepos[] - mousepos) * rot_scaling
                 last_mousepos[] = mousepos
                 rotate_cam!(scene, cam, Vec3f0(mp[1], -mp[2], 0f0), fixed_axis)
@@ -214,27 +215,37 @@ function translate_cam!(scene::Scene, cam::Camera3D, _translation::VecTypes)
 end
 
 """
-    zoom!(scene, point, zoom_step)
+    zoom!(scene, point, zoom_step, shift_lookat::Bool)
 
-Zooms the camera of `scene` in towards `point` by a factor of `zoom_step`.
+Zooms the camera of `scene` in towards `point` by a factor of `zoom_step`. A positive
+`zoom_step` zooms in while a negative `zoom_step` zooms out.
 """
 function zoom!(scene, point, zoom_step, shift_lookat::Bool)
     cam = cameracontrols(scene)
-    @extractvalue cam (projectiontype, lookat, eyeposition, upvector)
+    @extractvalue cam (projectiontype, lookat, eyeposition, upvector, projectiontype)
+
+
+    # split zoom into two components:
+    # the offset perpendicular to `eyeposition - lookat`, based on mouse offset ~ ray_dir
+    # the offset parallel to `eyeposition - lookat` ~ dir
+    ray_eye = inv(scene.camera.projection[]) * Vec4f0(point[1],point[2],0,0)
+    ray_eye = Vec4f0(ray_eye[1:2]...,0,0)
+    ray_dir = Vec3f0((inv(scene.camera.view[]) * ray_eye))
 
     dir = eyeposition - lookat
-    dir_len = norm(dir)
-    zoom_step *= 0.1f0 * dir_len
 
-    ray_eye = inv(scene.camera.projection[]) * Vec4f0(point[1],point[2],-1,1)
-    ray_eye = Vec4f0(ray_eye[1:2]...,-1,0)
-    ray_dir = Vec3f0((inv(scene.camera.view[]) * ray_eye))
-    ray_dir = normalize(ray_dir)
-    zoom_translation = ray_dir * zoom_step
-    cam.eyeposition[] = eyeposition + zoom_translation
     if shift_lookat
-        cam.lookat[] = lookat + zoom_translation
+        # This results in the point under the cursor remaining stationary
+        if projectiontype == Perspective
+            ray_dir *= norm(dir)
+        end
+        cam.eyeposition[] = eyeposition + (ray_dir - dir) * 0.1f0 * zoom_step
+        cam.lookat[] = lookat + zoom_step * 0.1f0 * ray_dir
+    else
+        # Rotations need more extreme eyeposition shifts
+        cam.eyeposition[] = eyeposition + (ray_dir - dir * 0.1f0) * zoom_step
     end
+
     update_cam!(scene, cam)
 end
 
@@ -242,7 +253,8 @@ end
     rotate_cam!(scene::Scene, theta_v::Number...)
     rotate_cam!(scene::Scene, theta_v::VecTypes)
 
-Rotate the camera of the Scene by the given rotation.
+Rotate the camera of the Scene by the given rotation. Passing `theta_v = (α, β, γ)` will rotate
+the camera according to the Euler angles (α, β, γ).
 """
 rotate_cam!(scene::Scene, theta_v::Number...) = rotate_cam!(scene, cameracontrols(scene), theta_v)
 rotate_cam!(scene::Scene, theta_v::VecTypes) = rotate_cam!(scene, cameracontrols(scene), theta_v)

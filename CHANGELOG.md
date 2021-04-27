@@ -1,71 +1,76 @@
-# Other branches (not yet merged)
+# 0.14.0
 
-# `master`
-- Changed default font to monospace in showlibrary (#190)
-- Got `rotate!(Accum, ...)` working (#196)
-- Updated Stepper documentation and allowed for custom file formats (#197)
+## New features
+ 
+- `rangebars` is added as an alternative to `errorbars` with absolute high/low values instead of relative deltas
 
-# v0.9.10
-- Fixed two-dimensional limits when passed to `Scene` (#195)
+## Improvements & Implementation Changes
 
-# v0.9.9
-- Added a custom docstring extension which allows the Attributes of a Recipe to be shown in
-  the help mode (#174).
-- Documented a lot of internal features (#174).
-- Added a new 3d camera type, `cam3d_cad!`(#161).
-- Improved warning text when displaying to text or plotpane (#163).
-- Ensured that unless `inline!(true)` was called, plots will always display in
-  interactive displays, even in Juno (#163).
-- Added licenses for fonts shipped with AbstractPlotting (#160).
-- Switched from using system `ffmpeg` to using `FFMPEG.jl` (#160).
-- Better docstrings for recording functions (#160).
-- Let certain attributes passed to mutating plot functions affect the Scene (#160).
-- Changed the default theme for `colorlegend` so that it scales with the resolution of the scene.
-- Provided a way to generate a lower quality texture atlas via `set_glyph_resolution!(Low)`
-  to make the WebGL backend more lightweight (#180).
-- Fixed `scale_plot` not actually working (#180).
-- Cleaned up theme merging & scene attribute composition, so this works (#180):
-    ```julia
-    scatter(rand(4), resolution = (200, 200))
-    scatter(rand(4), limits = ((0, 0), (200, 200)))
-    ```
+- `errorbars` accepts a different, wider range of arguments and its input data can now be changed dynamically without erroring (technically breaking, even if only in a minor way)
 
-## Internal changes
-- Replaced the `nothing` conversion trait with a new `NoConversion` trait, for clarity (#150).
-- A lot of backend API changes to accomodate `WGLMakie` (#160).
-- Enabled Gitlab CI!
+## Bugfixes
 
-# v0.9.8
-## User interface changes
-- Recipe docstrings are now associated with two functions instead of six (#116).
-- New title recipe! (#99)
-- Fixed buttons not respecting some attributes, and add a padding option (#114).
-- Added `showlibrary(grad::Symbol)` function to show color libraries in `PlotUtils.jl` (#116).
-- Added `showgradients` function to show an Array of gradients, indicated by Symbols (#116).
-- Fixed incorrect frame duration in `record`. (#132)
-- Fixed `save(path, io::VideoStream)` when file type is `.mkv` (#137).
-- Improveed camera zooming (#140).
+- `errorbars` and `rangebars` data limits ignore whiskers now, which before sometimes messed up autolimits
 
-## Internal/other changes
-- Changeed default alignment of buttons to (:center, :center) (#115)
-- Documented a lot of recipes and functions
-- Exported `HyperRectangle`, `update_limits!`, `update!`, and more...
-- Updated `VideoStream`, `save` docstrings.
-- Reworked tests to use `MakieGallery` (pretty big feature on the backend)
-- Enabled Travis CI!
+# 0.13.11
 
-# Additions
+## Improvements & Implementation Changes
 
-## streamplot
+- Menu optionvalue and optionlabel default to string representation for non 2-tuple argument
 
-```julia
-using MakieGallery, Makie
-run_example("streamplot")
-```
+# 0.13.10
 
-## timeseries
+## Improvements & Implementation Changes
 
-```julia
-using MakieGallery, Makie
-run_example("timeseries")
-```
+- Compat with StaticArrays 1.0
+
+# 0.13.09
+
+## Improvements & Implementation Changes
+
+- addmouseevents! return value is now a MouseEventHandle and can be disconnected fully via `clear!`
+- Menu options can be changed on the fly
+
+# 0.13.6
+
+## Bugfixes
+
+- Orientation of contourf matrix flipped for same direction as heatmap etc.
+- Contourf polys can change dynamically
+
+## Improvements & Implementation Changes
+
+- Selection rectangle dims outer area via transparent mesh
+- Heatmap, image, contourf and plots implementing special trait automatically cause tight limits for Axis
+
+# 0.13.5
+
+## New features
+
+- Added filled contour `contourf` plot function using Isoband in the backend
+
+## Improvements & Implementation Changes
+
+- Toggle reacts on mousedown not click to be more snappy
+
+# 0.13.4
+
+## Bugfixes
+
+- Removed shadowing of Base.hasfield in MakieLayout
+- Forwarded layout kwargs in `labelslidergrid!` correctly
+
+# 0.13.3
+
+## New features
+
+- Added interactions model to Axis. Interactions can be added with `register_interaction!` and removed with `deregister_interaction!`, as well as activated or deactivated temporarily with `activate_interaction!` and `deactivate_interaction!`.
+- Added `labelslidergrid!`, a function to create an internally aligned grid of sliders with labels and value-labels.
+- Axis has attributes `xrectzoom` and `yrectzoom` that control if the rectangle zoom changes the respective dimension or not.
+
+## Improvements & Implementation Changes
+
+- Cleaned up Slider style and implementation, Slider doesn't react while below other objects anymore
+- MakieLayout Mouse event types are now enum instances for less compilation
+- MakieLayout Mouse events store position in both data and pixel coordinates
+- Aligned colors of Menu, Slider, LButton etc better

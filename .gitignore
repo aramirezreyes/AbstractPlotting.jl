@@ -11,7 +11,6 @@ bluemarble-2048.png
 phases.0001_print.jpg
 **/._*
 Manifest.toml
-test/test_recordings
-test/tested_different
+!docs/Manifest.toml
 
 \.DS_Store

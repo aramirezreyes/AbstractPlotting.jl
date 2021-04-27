@@ -109,11 +109,11 @@ end
 projection ratio in terms of the rectangular view size `rect` rather
 than the aspect ratio.
 """
-function perspectiveprojection(wh::SimpleRectangle, fov::T, near::T, far::T) where T
+function perspectiveprojection(wh::Rect2D, fov::T, near::T, far::T) where T
     perspectiveprojection(fov, T(wh.w/wh.h), near, far)
 end
 function perspectiveprojection(
-        ::Type{T}, wh::SimpleRectangle, fov::Number, near::Number, far::Number
+        ::Type{T}, wh::Rect2D, fov::Number, near::Number, far::Number
     ) where T
     perspectiveprojection(T(fov), T(wh.w/wh.h), T(near), T(far))
 end
@@ -141,11 +141,11 @@ end
 function lookat(::Type{T}, eyePos::Vec{3}, lookAt::Vec{3}, up::Vec{3}) where T
     lookat(Vec{3,T}(eyePos), Vec{3,T}(lookAt), Vec{3,T}(up))
 end
-function orthographicprojection(wh::SimpleRectangle, near::T, far::T) where T
+function orthographicprojection(wh::Rect2D, near::T, far::T) where T
     orthographicprojection(zero(T), T(wh.w), zero(T), T(wh.h), near, far)
 end
 function orthographicprojection(
-        ::Type{T}, wh::SimpleRectangle, near::Number, far::Number
+        ::Type{T}, wh::Rect2D, near::Number, far::Number
     ) where T
     orthographicprojection(wh, T(near), T(far))
 end
@@ -176,8 +176,6 @@ function orthographicprojection(::Type{T},
     )
 end
 
-
-
 mutable struct Pivot{T}
     origin      ::Vec{3, T}
     xaxis       ::Vec{3, T}
@@ -188,7 +186,7 @@ mutable struct Pivot{T}
     scale       ::Vec{3, T}
 end
 
-GeometryTypes.origin(p::Pivot) = p.origin
+GeometryBasics.origin(p::Pivot) = p.origin
 
 rotationmatrix4(q::Quaternion{T}) where {T} = Mat4{T}(q)
 
@@ -309,6 +307,16 @@ function to_world(
         to_world(zeros(Point{N, T}), prj_view_inv, cam_res)
 end
 
+function project(scene::Scene, point::T) where T<:StaticVector
+    cam = scene.camera
+    project(
+        cam.projection[] *
+        cam.view[] *
+        transformationmatrix(scene)[],
+        Vec2f0(widths(pixelarea(scene)[])), point
+    )
+end
+
 function project(matrix::Mat4f0, p::T, dim4 = 1.0) where T <: VecTypes
     p = to_ndim(Vec4f0, to_ndim(Vec3f0, p, 0.0), dim4)
     p = matrix * p
@@ -321,5 +329,10 @@ function project(proj_view::Mat4f0, resolution::Vec2, point::Point)
     clip = proj_view * p4d
     p = (clip / clip[4])[Vec(1, 2)]
     p = Vec2f0(p[1], p[2])
-    ((((p + 1f0) / 2f0) .* (resolution - 1f0)) + 1f0)
+    return (((p .+ 1f0) / 2f0) .* (resolution .- 1f0)) .+ 1f0
+end
+
+function transform(model::Mat4, x::T) where T
+    x4d = to_ndim(Vec4f0, x, 0.0)
+    to_ndim(T, model * x4d, 0.0)
 end

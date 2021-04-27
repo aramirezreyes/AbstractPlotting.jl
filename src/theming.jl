@@ -1,3 +1,37 @@
+const DEFAULT_RESOLUTION = Ref((1920, 1080))
+
+if Sys.iswindows()
+    function primary_resolution()
+        dc = ccall((:GetDC, :user32), Ptr{Cvoid}, (Ptr{Cvoid},), C_NULL)
+        ntuple(2) do i
+            Int(ccall((:GetDeviceCaps, :gdi32), Cint, (Ptr{Cvoid}, Cint), dc, (2 - i) + 117))
+        end
+    end
+elseif Sys.isapple()
+    const _CoreGraphics = "CoreGraphics.framework/CoreGraphics"
+    function primary_resolution()
+        dispid = ccall((:CGMainDisplayID, _CoreGraphics), UInt32,())
+        height = ccall((:CGDisplayPixelsHigh,_CoreGraphics), Int, (UInt32,), dispid)
+        width = ccall((:CGDisplayPixelsWide,_CoreGraphics), Int, (UInt32,), dispid)
+        return (width, height)
+    end
+else
+    # TODO implement linux
+    primary_resolution() = DEFAULT_RESOLUTION[]
+end
+
+"""
+Returns the resolution of the primary monitor.
+If the primary monitor can't be accessed, returns (1920, 1080) (full hd)
+"""
+function primary_resolution end
+
+"""
+Returns a reasonable resolution for the main monitor.
+(right now just half the resolution of the main monitor)
+"""
+reasonable_resolution() = primary_resolution() .÷ 2
+
 #=
 Conservative 7-color palette from Points of view: Color blindness, Bang Wong - Nature Methods
 https://www.nature.com/articles/nmeth.1618?WT.ec_id=NMETH-201106
@@ -38,28 +72,66 @@ const minimal_default = Attributes(
     center = true,
     update_limits = true,
     axis = Attributes(),
-    axis2d = Attributes(),
     axis3d = Attributes(),
     legend = Attributes(),
     axis_type = automatic,
     camera = automatic,
     limits = automatic,
-    padding = Vec3f0(0.1),
-    raw = false
+    padding = Vec3f0(0.05),
+    raw = false,
+    SSAO = Attributes(
+        # enable = false,
+        bias = 0.025f0,       # z threshhold for occlusion
+        radius = 0.5f0,       # range of sample positions (in world space)
+        blur = Int32(2),      # A (2blur+1) by (2blur+1) range is used for blurring
+        # N_samples = 64,       # number of samples (requires shader reload)
+    ),
 )
 
-const _current_default_theme = copy(minimal_default)
+const _current_default_theme = deepcopy(minimal_default)
 
 function current_default_theme(; kw_args...)
-    return merge!(Attributes(kw_args), _current_default_theme)
+    return merge!(Attributes(kw_args), deepcopy(_current_default_theme))
 end
 
-function set_theme!(new_theme::Attributes)
+"""
+    set_theme(theme; kwargs...)
+
+Set the global default theme to `theme` and add / override any attributes given
+as keyword arguments.
+"""
+function set_theme!(new_theme = Theme()::Attributes; kwargs...)
     empty!(_current_default_theme)
-    new_theme = merge!(new_theme, minimal_default)
+    new_theme = merge!(deepcopy(new_theme), deepcopy(minimal_default))
+    new_theme = merge!(Theme(kwargs), new_theme)
     merge!(_current_default_theme, new_theme)
     return
 end
-function set_theme!(;kw_args...)
-    set_theme!(Attributes(; kw_args...))
+
+"""
+    with_theme(f, theme = Theme(); kwargs...)
+
+Calls `f` with `theme` temporarily activated. Attributes in `theme`
+can be overridden or extended with `kwargs`. The previous theme is always
+restored afterwards, no matter if `f` succeeds or fails.
+
+Example:
+
+```julia
+my_theme = Theme(resolution = (500, 500), color = :red)
+with_theme(my_theme, color = :blue, linestyle = :dashed) do
+    scatter(randn(100, 2))
+end
+```
+"""
+function with_theme(f, theme = Theme(); kwargs...)
+    previous_theme = AbstractPlotting.current_default_theme()
+    try
+        set_theme!(theme; kwargs...)
+        f()
+    catch e
+        rethrow(e)
+    finally
+        set_theme!(previous_theme)
+    end
 end

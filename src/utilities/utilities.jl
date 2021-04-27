@@ -1,24 +1,7 @@
-"""
-    interpolated_getindex(cmap::AbstractArray, value::AbstractFloat, norm = (0.0, 1.0))
 
-Like getindex, but accepts values between 0..1 and interpolates those to the full range.
-You can use `norm`, to change the range of 0..1 to whatever you want.
-
-"""
-function interpolated_getindex(cmap::AbstractArray{T}, value::AbstractFloat, norm = (0.0, 1.0)) where T
-    cmin, cmax = norm
-    i01 = clamp((value - cmin) / (cmax - cmin), 0.0, 1.0)
-    i1len = (i01 * (length(cmap) - 1)) + 1
-    down = floor(Int, i1len)
-    up = ceil(Int, i1len)
-    down == up && return cmap[down]
-    interp_val = i1len - down
-    downc, upc = cmap[down], cmap[up]
-    convert(T, (downc * (1.0 - interp_val)) + (upc * interp_val))
-end
 
 function to_image(image::AbstractMatrix{<: AbstractFloat}, colormap::AbstractVector{<: Colorant}, colorrange)
-    interpolated_getindex.((to_value(colormap),), image, (to_value(colorrange),))
+    return interpolated_getindex.((to_value(colormap),), image, (to_value(colorrange),))
 end
 
 """
@@ -27,7 +10,7 @@ Resample a vector with linear interpolation to have length `len`
 """
 function resample(A::AbstractVector, len::Integer)
     length(A) == len && return A
-    interpolated_getindex.((A,), range(0.0, stop=1.0, length=len))
+    return interpolated_getindex.((A,), range(0.0, stop=1.0, length=len))
 end
 
 """
@@ -88,8 +71,6 @@ function nan_extrema(array)
     Vec2f0(mini, maxi)
 end
 
-
-
 function extract_expr(extract_func, dictlike, args)
     if args.head != :tuple
         error("Usage: args need to be a tuple. Found: $args")
@@ -130,7 +111,7 @@ macro get_attribute(scene, args)
     extract_expr(get_attribute, scene, args)
 end
 
-@inline getindex_value(x::Union{Dict, Attributes, AbstractPlot}, key::Symbol) = to_value(x[key])
+@inline getindex_value(x::Union{Dict,Attributes,AbstractPlot}, key::Symbol) = to_value(x[key])
 @inline getindex_value(x, key::Symbol) = to_value(getfield(x, key))
 
 """
@@ -148,8 +129,6 @@ end
 macro extractvalue(scene, args)
     extract_expr(getindex_value, scene, args)
 end
-
-
 
 bs_length(x::NativeFont) = 1 # these are our rules, and for what we do, Vecs are usually scalars
 bs_length(x::VecTypes) = 1 # these are our rules, and for what we do, Vecs are usually scalars
@@ -169,18 +148,21 @@ Like broadcast but for foreach. Doesn't care about shape and treats Tuples && St
 function broadcast_foreach(f, args...)
     lengths = bs_length.(args)
     maxlen = maximum(lengths)
+
     # all non scalars should have same length
-    if any(x-> !(x in (0, 1, maxlen)), lengths)
+    if any(x -> !(x in (0, 1, maxlen)), lengths)
         error("All non scalars need same length, Found lengths for each argument: $lengths, $(typeof.(args))")
     end
+
+    # skip if there's a zero length element (like an empty annotations collection, etc)
+    # this differs from standard broadcasting logic in which all non-scalar shapes have to match
+    0 in lengths && return
+
     for i in 1:maxlen
         f(bs_getindex.(args, i)...)
     end
     return
 end
-
-
-
 
 """
     from_dict(::Type{T}, dict)
@@ -189,11 +171,9 @@ Automatically converts to the correct node types.
 """
 function from_dict(::Type{T}, dict) where T
     T(map(fieldnames(T)) do name
-        signal_convert(fieldtype(T, name), dict[name])
+        convert(fieldtype(T, name), dict[name])
     end...)
 end
-
-
 
 same_length_array(array, value::NativeFont) = repeated(value, length(array))
 same_length_array(array, value) = repeated(value, length(array))
@@ -205,45 +185,20 @@ function same_length_array(arr, value::Vector)
 end
 same_length_array(arr, value, key) = same_length_array(arr, convert_attribute(value, key))
 
-
-
-function to_ndim(T::Type{<: VecTypes{N, ET}}, vec::VecTypes{N2}, fillval) where {N, ET, N2}
+function to_ndim(T::Type{<: VecTypes{N,ET}}, vec::VecTypes{N2}, fillval) where {N,ET,N2}
     T(ntuple(Val(N)) do i
         i > N2 && return ET(fillval)
         @inbounds return vec[i]
     end)
 end
 
-dim3(x) = ntuple(i-> x, Val(3))
-dim3(x::NTuple{3, Any}) = x
+dim3(x) = ntuple(i -> x, Val(3))
+dim3(x::NTuple{3,Any}) = x
 
-dim2(x) = ntuple(i-> x, Val(2))
-dim2(x::NTuple{2, Any}) = x
+dim2(x) = ntuple(i -> x, Val(2))
+dim2(x::NTuple{2,Any}) = x
 
 lerp(a::T, b::T, val::AbstractFloat) where {T} = (a .+ (val * (b .- a)))
-
-
-function merge_attributes!(input::Attributes, theme::Attributes)
-    for (key, value) in theme
-        if !haskey(input, key)
-            input[key] = copy(value)
-        else
-            current_value = input[key]
-            if value isa Attributes && current_value isa Attributes
-                # if nested attribute, we merge recursively
-                merge_attributes!(current_value, value)
-            elseif value isa Attributes || current_value isa Attributes
-                error("""
-                Type missmatch while merging plot attributes with theme for key: $(key).
-                Found $(value) in theme, while attributes contains: $(current_value)
-                """)
-            else
-                # we're good! input already has a value, can ignore theme
-            end
-        end
-    end
-    return input
-end
 
 function merged_get!(defaults::Function, key, scene, input::Vector{Any})
     return merged_get!(defaults, key, scene, Attributes(input))
@@ -279,8 +234,6 @@ function to_vector(x::ClosedInterval, len, T)
 end
 
 
-
-
 """
 Returns (N1, N2) with `N1 x N2 == n`. N2 might become 1
 """
@@ -303,7 +256,7 @@ function close2square(n::Real)
         # Set union ensures that duplicate candidates are removed
         candidates = union(candidates, f .* candidates)
         # throw out candidates which are larger than amax
-        filter!(x-> x <= amax, candidates)
+        filter!(x -> x <= amax, candidates)
     end
     # Take the largest factor in the list d
     (candidates[end], div(n, candidates[end]))
@@ -318,9 +271,66 @@ x[0.5] # returns color at half point of colormap
 """
 struct ColorSampler{Data <: AbstractArray}
     colormap::Data
-    color_range::Tuple{Float64, Float64}
+    color_range::Tuple{Float64,Float64}
 end
 
 function Base.getindex(cs::ColorSampler, value::Number)
     return interpolated_getindex(cs.colormap, value, cs.color_range)
+end
+
+
+# This function was copied from GR.jl,
+# written by Josef Heinen.
+"""
+    peaks([n=49])
+
+Return a nonlinear function on a grid.  Useful for test cases.
+"""
+function peaks(n=49)
+    x = LinRange(-3, 3, n)
+    y = LinRange(-3, 3, n)
+    3 * (1 .- x').^2 .* exp.(-(x'.^2) .- (y .+ 1).^2) .- 10 * (x' / 5 .- x'.^3 .- y.^5) .* exp.(-x'.^2 .- y.^2) .- 1 / 3 * exp.(-(x' .+ 1).^2 .- y.^2)
+end
+
+get_dim(x, ind, dim, size) = get_dim(LinRange(extrema(x)..., size[dim]), ind, dim, size)
+get_dim(x::AbstractVector, ind, dim, size) = x[Tuple(ind)[dim]]
+get_dim(x::AbstractMatrix, ind, dim, size) = x[ind]
+
+"""
+    surface_normals(x, y, z)
+Normals for a surface defined on the grid xy
+"""
+function surface_normals(x, y, z)
+    function normal(i)
+        i1, imax = CartesianIndex(1, 1), CartesianIndex(size(z))
+        ci(x, y) = min(max(i + CartesianIndex(x, y), i1), imax)
+        of = (ci(-1, -1), ci(1, -1), ci(-1, 1), ci(1, 1))
+        function offsets(off)
+            s = size(z)
+            return Vec3f0(get_dim(x, off, 1, s), get_dim(y, off, 2, s), z[off])
+        end
+        return normalize(mapreduce(offsets, +, init=Vec3f0(0), of))
+    end
+    return vec(map(normal, CartesianIndices(z)))
+end
+
+
+function attribute_names(PlotType)
+    # TODO, have all plot types store their attribute names
+    return keys(default_theme(nothing, PlotType))
+end
+
+"""
+    attributes_from(PlotType, plot)
+
+Gets the attributes from plot, that are valid for PlotType
+"""
+function attributes_from(PlotType, plot)
+    result = Attributes()
+    for key in attribute_names(PlotType)
+        if haskey(plot, key)
+            result[key] = plot[key]
+        end
+    end
+    return result
 end

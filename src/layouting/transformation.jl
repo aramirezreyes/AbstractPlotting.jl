@@ -1,14 +1,14 @@
 
-function Transformation()
-    flip = node(:flip, (false, false, false))
-    scale = node(:scale, Vec3f0(1))
+function Transformation(transform_func=identity)
+    flip = Node((false, false, false))
+    scale = Node(Vec3f0(1))
     scale = lift(flip, scale) do f, s
         map((f, s)-> f ? -s : s, Vec(f), s)
     end
     translation, rotation, align = (
-        node(:translation, Vec3f0(0)),
-        node(:rotation, Quaternionf0(0, 0, 0, 1)),
-        node(:align, Vec2f0(0))
+        Node(Vec3f0(0)),
+        Node(Quaternionf0(0, 0, 0, 1)),
+        Node(Vec2f0(0))
     )
     trans = nothing
     model = map_once(scale, translation, rotation, align, flip) do s, o, q, a, flip
@@ -19,24 +19,24 @@ function Transformation()
         end
         transformationmatrix(o, s, q, a, flip, parent)
     end
-    trans = Transformation(
+    return Transformation(
         translation,
         scale,
         rotation,
         model,
         flip,
         align,
-        signal_convert(Node{Any}, identity)
+        Node{Any}(transform_func)
     )
 end
 
 function Transformation(scene::SceneLike)
-    flip = node(:flip, (false, false, false))
-    scale = node(:scale, Vec3f0(1))
+    flip = Node((false, false, false))
+    scale = Node(Vec3f0(1))
     translation, rotation, align = (
-        node(:translation, Vec3f0(0)),
-        node(:rotation, Quaternionf0(0, 0, 0, 1)),
-        node(:align, Vec2f0(0))
+        Node(Vec3f0(0)),
+        Node(Quaternionf0(0, 0, 0, 1)),
+        Node(Vec2f0(0))
     )
     pmodel = transformationmatrix(scene)
     trans = nothing
@@ -46,8 +46,10 @@ function Transformation(scene::SceneLike)
         else
             nothing
         end
-        p * transformationmatrix(o, s, q, align, f, bb)
+        return p * transformationmatrix(o, s, q, align, f, bb)
     end
+
+    ptrans = transformation(scene)
     trans = Transformation(
         translation,
         scale,
@@ -55,7 +57,7 @@ function Transformation(scene::SceneLike)
         model,
         flip,
         align,
-        signal_convert(Node{Any}, identity)
+        copy(ptrans.transform_func)
     )
     return trans
 end
@@ -100,7 +102,7 @@ scale!(t::Transformable, s) = (scale(t)[] = to_ndim(Vec3f0, Float32.(s), 1))
     scale!(t::Transformable, xyz)
     scale!(t::Transformable, xyz...)
 
-Scale the given [`Transformable`](@ref) (a Scene or Plot) to the given arguments.
+Scale the given `Transformable` (a Scene or Plot) to the given arguments.
 Can take `x, y` or `x, y, z`.
 This is an absolute scaling, and there is no option to perform relative scaling.
 """
@@ -132,8 +134,7 @@ rotate!(::Type{T}, scene::Transformable, axis_rot...) where T = rotate!(T, scene
     rotate!(scene::Transformable, axis_rot::AbstractFloat)
     rotate!(scene::Transformable, axis_rot...)
 
-Apply an absolute rotation to the Scene.  Rotations are all internally converted to
-[`Quaternion`](@ref)s.
+Apply an absolute rotation to the Scene. Rotations are all internally converted to `Quaternion`s.
 """
 rotate!(scene::Transformable, axis_rot...) = rotate!(Absolute, scene, axis_rot)
 rotate!(scene::Transformable, axis_rot::Quaternion) = rotate!(Absolute, scene, axis_rot)
@@ -200,3 +201,125 @@ function transform!(scene::Transformable, x::Tuple{Symbol, <: Number})
 end
 
 transformationmatrix(x) = transformation(x).model
+
+transform_func(x) = transform_func_obs(x)[]
+transform_func_obs(x) = transformation(x).transform_func
+
+"""
+    apply_transform(f, data)
+Apply the data transform func to the data
+"""
+apply_transform(f::typeof(identity), x) = x
+# these are all ambiguity fixes
+apply_transform(f::typeof(identity), x::AbstractArray) = x
+apply_transform(f::typeof(identity), x::VecTypes) = x
+apply_transform(f::typeof(identity), x::Number) = x
+apply_transform(f::typeof(identity), x::ClosedInterval) = x
+
+apply_transform(f::NTuple{2, typeof(identity)}, x) = x
+apply_transform(f::NTuple{2, typeof(identity)}, x::AbstractArray) = x
+apply_transform(f::NTuple{2, typeof(identity)}, x::VecTypes) = x
+apply_transform(f::NTuple{2, typeof(identity)}, x::Number) = x
+apply_transform(f::NTuple{2, typeof(identity)}, x::ClosedInterval) = x
+
+apply_transform(f::NTuple{3, typeof(identity)}, x) = x
+apply_transform(f::NTuple{3, typeof(identity)}, x::AbstractArray) = x
+apply_transform(f::NTuple{3, typeof(identity)}, x::VecTypes) = x
+apply_transform(f::NTuple{3, typeof(identity)}, x::Number) = x
+apply_transform(f::NTuple{3, typeof(identity)}, x::ClosedInterval) = x
+
+
+struct PointTrans{N, F}
+    f::F
+    function PointTrans{N}(f::F) where {N, F}
+        if !hasmethod(f, Tuple{Point{N}})
+            error("PointTrans with parameter N = $N must be applicable to an argument of type Point{$N}.")
+        end
+        new{N, F}(f)
+    end
+end
+
+# PointTrans{N}(func::F) where {N, F} = PointTrans{N, F}(func)
+Base.broadcastable(x::PointTrans) = (x,)
+
+function apply_transform(f::PointTrans{N}, point::Point{N}) where N
+    return f.f(point)
+end
+
+function apply_transform(f::PointTrans{N1}, point::Point{N2}) where {N1, N2}
+    p_dim = to_ndim(Point{N1, Float32}, point, 0.0)
+    p_trans = f.f(p_dim)
+    if N1 < N2
+        p_large = ntuple(i-> i <= N1 ? p_trans[i] : point[i], N2)
+        return Point{N2, Float32}(p_large)
+    else
+        return to_ndim(Point{N2, Float32}, p_trans, 0.0)
+    end
+end
+
+function apply_transform(f, data::AbstractArray)
+    map(point-> apply_transform(f, point), data)
+end
+
+function apply_transform(f::Tuple{Any, Any}, point::VecTypes{2})
+    Point2{Float32}(
+        f[1](point[1]),
+        f[2](point[2]),
+    )
+end
+# ambiguity fix
+apply_transform(f::NTuple{2, typeof(identity)}, point::VecTypes{2}) = point
+
+
+function apply_transform(f::Tuple{Any, Any}, point::VecTypes{3})
+    apply_transform((f..., identity), point)
+end
+# ambiguity fix
+apply_transform(f::NTuple{2, typeof(identity)}, point::VecTypes{3}) = point
+
+function apply_transform(f::Tuple{Any, Any, Any}, point::VecTypes{3})
+    Point3{Float32}(
+        f[1](point[1]),
+        f[2](point[2]),
+        f[3](point[3]),
+    )
+end
+# ambiguity fix
+apply_transform(f::NTuple{3, typeof(identity)}, point::VecTypes{3}) = point
+
+
+apply_transform(f, number::Number) = f(number)
+
+function apply_transform(f::Observable, data::Observable)
+    return lift((f, d)-> apply_transform(f, d), f, data)
+end
+
+apply_transform(f, itr::Pair) = apply_transform(f, itr[1]) => apply_transform(f, itr[2])
+function apply_transform(f, itr::ClosedInterval)
+    mini, maxi = extrema(itr)
+    return apply_transform(f, mini) .. apply_transform(f, maxi)
+end
+
+
+function apply_transform(f, r::Rect)
+    mi = minimum(r)
+    ma = maximum(r)
+    mi_t = apply_transform(f, mi)
+    ma_t = apply_transform(f, ma)
+    Rect(Vec(mi_t), Vec(ma_t .- mi_t))
+end
+# ambiguity fix
+apply_transform(f::typeof(identity), r::Rect) = r
+apply_transform(f::NTuple{2, typeof(identity)}, r::Rect) = r
+apply_transform(f::NTuple{3, typeof(identity)}, r::Rect) = r
+
+inverse_transform(::typeof(identity)) = identity
+inverse_transform(::typeof(log10)) = exp10
+inverse_transform(::typeof(log)) = exp
+inverse_transform(::typeof(log2)) = exp2
+inverse_transform(::typeof(sqrt)) = x -> x ^ 2
+inverse_transform(F::Tuple) = map(inverse_transform, F)
+
+logit(x) = log(x / (1 - x))
+expit(x) = 1 / (1 + exp(-x))
+inverse_transform(::typeof(logit)) = expit

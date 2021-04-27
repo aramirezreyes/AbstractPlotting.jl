@@ -1,4 +1,4 @@
-to_func_name(x::Symbol) = string(x) |> lowercase |> Symbol
+to_func_name(x::Symbol) = Symbol(lowercase(string(x)))
 
 """
      default_plot_signatures(funcname, funcname!, PlotType)
@@ -8,34 +8,12 @@ The `Core.@__doc__` macro transfers the docstring given to the Recipe into the f
 """
 function default_plot_signatures(funcname, funcname!, PlotType)
     quote
-
         Core.@__doc__ function ($funcname)(args...; attributes...)
-            attr = Attributes(attributes)
-            kw = extract_scene_attributes!(attr)
-            plot!(Scene(;kw...), $PlotType, attr, args...)
+            plot($PlotType, args...; attributes...)
         end
-
 
         Core.@__doc__ function ($funcname!)(args...; attributes...)
-            plot!(current_scene(), $PlotType, Attributes(attributes), args...)
-        end
-
-        function ($funcname!)(scene::SceneLike, args...; attributes...)
-            plot!(scene, $PlotType, Attributes(attributes), args...)
-        end
-
-        function ($funcname)(attributes::Attributes, args...; kw_attributes...)
-            merged = merge!(Attributes(kw_attributes), attributes)
-            kw = extract_scene_attributes!(merged)
-            plot!(Scene(;kw...), $PlotType, merged, args...)
-        end
-
-        function ($funcname!)(attributes::Attributes, args...; kw_attributes...)
-            plot!(current_scene(), $PlotType, merge!(Attributes(kw_attributes), attributes), args...)
-        end
-
-        function ($funcname!)(scene::SceneLike, attributes::Attributes, args...; kw_attributes...)
-            plot!(scene, $PlotType, merge!(Attributes(kw_attributes), attributes), args...)
+            plot!($PlotType, args...; attributes...)
         end
     end
 end
@@ -74,7 +52,7 @@ We use an example to show how this works:
 
     # arguments (x, y, z) && theme are optional
     @recipe(MyPlot, x, y, z) do scene
-        Theme(
+        Attributes(
             plot_color => :red
         )
     end
@@ -112,7 +90,7 @@ specialization of `default_theme` which inserts the theme into any scene that
 plots `MyPlot`:
 
     function default_theme(scene, ::MyPlot)
-        Theme(
+        Attributes(
             plot_color => :red
         )
     end
@@ -151,7 +129,6 @@ macro recipe(theme_func, Tsym::Symbol, args::Symbol...)
     expr = quote
         $(funcname)() = not_implemented_for($funcname)
         const $(PlotType){$(esc(:ArgType))} = Combined{$funcname, $(esc(:ArgType))}
-        Base.show(io::IO, ::Type{<: $PlotType}) = print(io, $(string(Tsym)), "{...}")
         $(default_plot_signatures(funcname, funcname!, PlotType))
         AbstractPlotting.default_theme(scene, ::Type{<: $PlotType}) = $(esc(theme_func))(scene)
         export $PlotType, $funcname, $funcname!

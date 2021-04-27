@@ -15,8 +15,8 @@ Creates a 2D camera for the given Scene.
 """
 function cam2d!(scene::SceneLike; kw_args...)
     cam_attributes = merged_get!(:cam2d, scene, Attributes(kw_args)) do
-        Theme(
-            area = node(:area, FRect(0, 0, 1, 1)),
+        Attributes(
+            area = Node(FRect(0, 0, 1, 1)),
             zoomspeed = 0.10f0,
             zoombutton = nothing,
             panbutton = Mouse.right,
@@ -32,7 +32,7 @@ function cam2d!(scene::SceneLike; kw_args...)
     add_zoom!(scene, cam)
     add_pan!(scene, cam)
     correct_ratio!(scene, cam)
-    selection_rect!(scene, cam, cam_attributes[:selectionbutton])
+    selection_rect!(scene, cam, cam_attributes.selectionbutton)
     cameracontrols!(scene, cam)
     cam
 end
@@ -41,19 +41,18 @@ wscale(screenrect, viewrect) = widths(viewrect) ./ widths(screenrect)
 
 
 """
-    `update_cam!(scene::SceneLike, area)`
+    update_cam!(scene::SceneLike, area)
 
 Updates the camera for the given `scene` to cover the given `area` in 2d.
 """
 update_cam!(scene::SceneLike, area) = update_cam!(scene, cameracontrols(scene), area)
 """
-    `update_cam!(scene::SceneLike)`
+    update_cam!(scene::SceneLike)
 
 Updates the camera for the given `scene` to cover the limits of the `Scene`.
 Useful when using the `Node` pipeline.
 """
 update_cam!(scene::SceneLike) = update_cam!(scene, cameracontrols(scene), limits(scene)[])
-
 
 function update_cam!(scene::Scene, cam::Camera2D, area3d::Rect)
     area = FRect2D(area3d)
@@ -88,11 +87,6 @@ function update_cam!(scene::SceneLike, cam::Camera2D)
     camera(scene).projection[] = projection
     camera(scene).projectionview[] = projection * view
     cam.last_area[] = Vec(size(scene))
-    if cam.update_limits[]
-        #
-        w2 = Vec2f0(w, h) .* 0.2
-        update_limits!(scene, Rect(origin(cam.area[]) .+ w2, widths(cam.area[]) .- 2w2))
-    end
     return
 end
 
@@ -160,22 +154,20 @@ end
 
 function camspace(scene::SceneLike, cam::Camera2D, point)
     point = Vec(point) .* wscale(pixelarea(scene)[], cam.area[])
-    Vec(point) .+ Vec(minimum(cam.area[]))
+    return Vec(point) .+ Vec(minimum(cam.area[]))
 end
-
-FRect() = FRect(NaN, NaN, NaN, NaN)
 
 function absrect(rect)
     xy, wh = minimum(rect), widths(rect)
     xy = ntuple(Val(2)) do i
         wh[i] < 0 ? xy[i] + wh[i] : xy[i]
     end
-    FRect(Vec2f0(xy), Vec2f0(abs.(wh)))
+    return FRect(Vec2f0(xy), Vec2f0(abs.(wh)))
 end
 
 
 function selection_rect!(scene, cam, key)
-    rect = RefValue(FRect())
+    rect = RefValue(FRect(NaN, NaN, NaN, NaN))
     lw = 2f0
     scene_unscaled = Scene(
         scene, transformation = Transformation(),
@@ -191,7 +183,7 @@ function selection_rect!(scene, cam, key)
         color = (:black, 0.4),
         visible = false,
         raw = true
-    ).plots[end]
+    )
     waspressed = RefValue(false)
     dragged_rect = on(camera(scene), events(scene).mousedrag, key) do drag, key
         if ispressed(scene, key) && is_mouseinside(scene)
@@ -216,8 +208,7 @@ function selection_rect!(scene, cam, key)
                 if w > 0.0 && h > 0.0
                     update_cam!(scene, cam, r)
                 end
-                #scene.limits[] = FRect3D(rect[])
-                rect[] = FRect()
+                rect[] = FRect(NaN, NaN, NaN, NaN)
                 rect_vis[1] = rect[]
             end
             # always hide if not the right key is pressed
@@ -248,7 +239,7 @@ end
 
 
 
-function add_restriction!(cam, window, rarea::SimpleRectangle, minwidths::Vec)
+function add_restriction!(cam, window, rarea::Rect2D, minwidths::Vec)
     area_ref = Base.RefValue(cam[Area])
     restrict_action = paused_action(1.0) do t
         o = lerp(origin(area_ref[]), origin(cam[Area]), t)
